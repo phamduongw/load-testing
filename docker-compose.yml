@@ -1,0 +1,12 @@
+version: "3"
+services:
+  load-testing:
+    image: load-testing
+    environment:
+      - JDBC_DRIVER=com.mysql.cj.jdbc.Driver
+      - JDBC_URL=jdbc:mysql://10.10.12.238:3306
+      - JDBC_USERNAME=dbadmin
+      - JDBC_PASSWORD=oracle_4U
+      - JDBC_QUERY=INSERT INTO cx6_auditing.test (NAME) VALUES ('Example Name')
+      - NUMBER_OF_CONNECTIONS=100
+      - LOOP_COUNT_PER_CONNECTION=100
