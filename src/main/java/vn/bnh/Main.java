@@ -3,6 +3,8 @@ package vn.bnh;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -21,12 +23,18 @@ public class Main {
     private static final String NUMBER_OF_CONNECTIONS = System.getenv("NUMBER_OF_CONNECTIONS");
     private static final String LOOP_COUNT_PER_CONNECTION = System.getenv("LOOP_COUNT_PER_CONNECTION");
 
+    private static final long MEGABYTE = 1024L * 1024L;
+
     public static void validateNotNull(String value, String name) {
         if (value == null) {
             String errorMessage = name + " is null";
             log4j.error(errorMessage);
             throw new NullPointerException(errorMessage);
         }
+    }
+
+    public static long bytesToMegabytes(long bytes) {
+        return bytes / MEGABYTE;
     }
 
     public static void main(String[] args) throws ClassNotFoundException {
@@ -53,12 +61,19 @@ public class Main {
     static class QueryTask implements Runnable {
         @Override
         public void run() {
+            // CPU used
+            OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
+            // RAM used
+            Runtime runtime = Runtime.getRuntime();
+
             try (Connection connection = DriverManager.getConnection(JDBC_URL, JDBC_USERNAME, JDBC_PASSWORD); PreparedStatement statement = connection.prepareStatement(JDBC_QUERY)) {
 
-                int loopCount = LOOP_COUNT_PER_CONNECTION != null ? Integer.parseInt(LOOP_COUNT_PER_CONNECTION) : Integer.MAX_VALUE;
-                for (int i = 0; i < loopCount; i++) {
+                long loopCount = LOOP_COUNT_PER_CONNECTION != null ? Long.parseLong(LOOP_COUNT_PER_CONNECTION) : Long.MAX_VALUE;
+                for (long i = 0; i < loopCount; i++) {
                     log4j.info("[{}] - Executing query: {}", (i + 1), JDBC_QUERY);
                     statement.execute();
+                    log4j.info("CPU used: {}%", osBean.getSystemLoadAverage() / osBean.getAvailableProcessors() * 100);
+                    log4j.info("RAM used: {}MB", bytesToMegabytes(runtime.totalMemory() - runtime.freeMemory()));
                 }
             } catch (SQLException e) {
                 log4j.error(e.getMessage());
