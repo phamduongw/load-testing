@@ -7,6 +7,14 @@ services:
       - JDBC_URL=jdbc:mysql://10.10.12.238:3306
       - JDBC_USERNAME=dbadmin
       - JDBC_PASSWORD=oracle_4U
-      - JDBC_QUERY=INSERT INTO cx6_auditing.test (NAME) VALUES ('Example Name')
-      - NUMBER_OF_CONNECTIONS=100
-      - LOOP_COUNT_PER_CONNECTION=100
+      - CONN_COUNT=10
+      # Uncomment the line below if you want to use LOOP_COUNT
+      # - LOOP_COUNT=100
+      - SELECT_QUERY=SELECT COUNT(*) FROM CX6_AUDITING.TEST
+      - SELECT_WEIGHT=0.25
+      - INSERT_QUERY=INSERT INTO cx6_auditing.test (NAME) VALUES ('Example Name')
+      - INSERT_WEIGHT=0.25
+      - UPDATE_QUERY=UPDATE cx6_auditing.test SET NAME='ABC' WHERE ID = '10'
+      - UPDATE_WEIGHT=0.25
+      - DELETE_QUERY=DELETE FROM cx6_auditing.test WHERE ID = '100'
+      - DELETE_WEIGHT=0.25
