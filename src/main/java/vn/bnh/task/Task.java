@@ -17,13 +17,14 @@ import java.util.List;
 import java.util.StringJoiner;
 
 public class Task {
-    private static final DatabaseConfiguration databaseConfiguration = new AnnotationConfigApplicationContext(AppConfig.class).getBean(DatabaseConfiguration.class);
+    private static final DatabaseConfiguration DATABASE_CONFIG = new AnnotationConfigApplicationContext(AppConfig.class)
+            .getBean(DatabaseConfiguration.class);
     private static final Logger LOGGER = LogManager.getLogger(Task.class);
     private static final OperatingSystemMXBean OS_BEAN = ManagementFactory.getOperatingSystemMXBean();
     private static final Runtime RUNTIME = Runtime.getRuntime();
     private static final long MEGABYTE = 1024L * 1024L;
 
-    static void execQuery(PreparedStatement stmt, long startRequestTime, boolean isPooling, String query) throws SQLException {
+    private static void logQueryExecutionStats(PreparedStatement stmt, long startRequestTime, boolean isPooling, String query) throws SQLException {
         long startExecTime = System.currentTimeMillis();
         stmt.execute();
         long endExecTime = System.currentTimeMillis();
@@ -32,217 +33,106 @@ public class Task {
         long memoryUsed = (RUNTIME.totalMemory() - RUNTIME.freeMemory()) / MEGABYTE;
         int cpuUsage = (int) (OS_BEAN.getSystemLoadAverage() / OS_BEAN.getAvailableProcessors() * 100);
 
-        LOGGER.info("CPU: {}% - RAM: {}MB - Pooling: {} - Response: {}ms - Latency: {}ms - Query: {}", cpuUsage, memoryUsed, isPooling, responseTime, latency, query);
+        LOGGER.info("CPU: {}% - RAM: {}MB - Pooling: {} - Response Time: {}ms - Latency: {}ms - Query: {}",
+                cpuUsage, memoryUsed, isPooling, responseTime, latency, query);
+    }
+
+    private static void executeQuery(Connection conn, String query, long startRequestTime, boolean isPooling) {
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            logQueryExecutionStats(stmt, startRequestTime, isPooling, query);
+        } catch (SQLException e) {
+            LOGGER.error("Query execution error: {}", e.getMessage());
+        }
     }
 
     private static void execInactiveQuery(String query) {
         long startRequestTime = System.currentTimeMillis();
-        try (Connection conn = DriverManager.getConnection(databaseConfiguration.getJdbcUrl(), databaseConfiguration.getJdbcUsername(), databaseConfiguration.getJdbcPassword()); PreparedStatement stmt = conn.prepareStatement(query)) {
-            execQuery(stmt, startRequestTime, false, query);
+        try (Connection conn = DriverManager.getConnection(DATABASE_CONFIG.getJdbcUrl(), DATABASE_CONFIG.getJdbcUsername(), DATABASE_CONFIG.getJdbcPassword())) {
+            executeQuery(conn, query, startRequestTime, false);
         } catch (CommunicationsException e) {
             LOGGER.warn("Communication error occurred. Retrying connection...");
         } catch (SQLException e) {
-            LOGGER.error(e.getMessage());
+            LOGGER.error("Database connection error: {}", e.getMessage());
         }
     }
 
-    public static void inactiveConnAndExecQuery(Object queryObject) {
+    public static void inactiveConnAndExecQuery(Object queryObject, LoopCount loopCount) {
+        long startTime = System.currentTimeMillis();
+        long durationMillis = loopCount.getType().equals("time") ? loopCount.getCount() * 1000 : 0;
+        int maxLoops = loopCount.getType().equals("number") ? (int) loopCount.getCount() : Integer.MAX_VALUE;
+
         if (queryObject instanceof ReadQuery readQuery) {
             List<String> queries = readQuery.getQueries();
-            while (true) {
-                for (String query : queries) {
-                    execInactiveQuery(query);
-                }
+            for (int i = 0; i < maxLoops && (durationMillis == 0 || System.currentTimeMillis() - startTime < durationMillis); i++) {
+                queries.forEach(Task::execInactiveQuery);
             }
         } else if (queryObject instanceof WriteQuery writeQuery) {
-            String type = writeQuery.getType();
             String queryTemplate = writeQuery.getQueryTemplate();
             List<WriteQueryDetails> queries = writeQuery.getQueries();
-            switch (type) {
-                case "insert" -> {
-                    while (true) {
-                        for (WriteQueryDetails writeQueryDetails : queries) {
-                            String tableName = writeQueryDetails.getTableName();
-
-                            // Target Columns
-                            StringJoiner columnNames = new StringJoiner(", ");
-                            StringJoiner values = new StringJoiner(", ");
-                            for (FieldDetails fieldDetails : writeQueryDetails.getTargetColumns()) {
-                                columnNames.add(fieldDetails.getName());
-                                values.add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-                            }
-
-                            execInactiveQuery(String.format(queryTemplate, tableName, columnNames, values));
-                        }
-                    }
-                }
-                case "update" -> {
-                    while (true) {
-                        for (WriteQueryDetails writeQueryDetails : queries) {
-                            String tableName = writeQueryDetails.getTableName();
-
-                            StringJoiner tgPair = new StringJoiner(", ");
-
-                            for (FieldDetails fieldDetails : writeQueryDetails.getTargetColumns()) {
-                                StringJoiner updatePair = new StringJoiner(" = ");
-
-                                updatePair.add(fieldDetails.getName()).add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-
-                                tgPair.add(updatePair.toString());
-                            }
-
-                            StringJoiner wcPair = new StringJoiner(" && ");
-
-                            for (FieldDetails fieldDetails : writeQueryDetails.getWhereClauses()) {
-                                StringJoiner updatePair = new StringJoiner(" = ");
-
-                                updatePair.add(fieldDetails.getName()).add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-
-                                wcPair.add(updatePair.toString());
-                            }
-
-                            execInactiveQuery(String.format(queryTemplate, tableName, tgPair, wcPair));
-                        }
-                    }
-                }
-                case "delete" -> {
-                    while (true) {
-                        for (WriteQueryDetails writeQueryDetails : queries) {
-                            String tableName = writeQueryDetails.getTableName();
-
-                            StringJoiner wcPair = new StringJoiner(" && ");
-
-                            for (FieldDetails fieldDetails : writeQueryDetails.getWhereClauses()) {
-                                StringJoiner updatePair = new StringJoiner(" = ");
-
-                                updatePair.add(fieldDetails.getName()).add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-
-                                wcPair.add(updatePair.toString());
-                            }
-
-                            execInactiveQuery(String.format(queryTemplate, tableName, wcPair));
-                        }
-                    }
-                }
+            for (int i = 0; i < maxLoops && (durationMillis == 0 || System.currentTimeMillis() - startTime < durationMillis); i++) {
+                queries.forEach(queryDetails -> execInactiveQuery(generateQuery(queryTemplate, queryDetails, writeQuery.getType())));
             }
         }
     }
 
-    public static void activeConnAndExecQuery(Object queryObject) {
-        Connection conn = null;
-        try {
-            conn = DriverManager.getConnection(databaseConfiguration.getJdbcUrl(), databaseConfiguration.getJdbcUsername(), databaseConfiguration.getJdbcPassword());
+    public static void activeConnAndExecQuery(Object queryObject, LoopCount loopCount) {
+        long startTime = System.currentTimeMillis();
+        long durationMillis = loopCount.getType().equals("time") ? loopCount.getCount() * 1000 : 0;
+        int maxLoops = loopCount.getType().equals("number") ? (int) loopCount.getCount() : Integer.MAX_VALUE;
+
+        try (Connection conn = DriverManager.getConnection(DATABASE_CONFIG.getJdbcUrl(), DATABASE_CONFIG.getJdbcUsername(), DATABASE_CONFIG.getJdbcPassword())) {
+            if (queryObject instanceof ReadQuery readQuery) {
+                List<String> queries = readQuery.getQueries();
+                for (int i = 0; i < maxLoops && (durationMillis == 0 || System.currentTimeMillis() - startTime < durationMillis); i++) {
+                    queries.forEach(query -> executeQuery(conn, query, System.currentTimeMillis(), true));
+                }
+            } else if (queryObject instanceof WriteQuery writeQuery) {
+                String queryTemplate = writeQuery.getQueryTemplate();
+                List<WriteQueryDetails> queries = writeQuery.getQueries();
+                for (int i = 0; i < maxLoops && (durationMillis == 0 || System.currentTimeMillis() - startTime < durationMillis); i++) {
+                    queries.forEach(queryDetails -> executeQuery(conn, generateQuery(queryTemplate, queryDetails, writeQuery.getType()), System.currentTimeMillis(), true));
+                }
+            }
         } catch (CommunicationsException e) {
             LOGGER.warn("Communication error occurred. Retrying connection...");
         } catch (SQLException e) {
-            LOGGER.error(e.getMessage());
+            LOGGER.error("Database connection error: {}", e.getMessage());
         }
+    }
 
-        if (queryObject instanceof ReadQuery readQuery) {
-            List<String> queries = readQuery.getQueries();
-            while (true) {
-                for (String query : queries) {
-                    long startRequestTime = System.currentTimeMillis();
-                    try {
-                        PreparedStatement stmt = conn.prepareStatement(query);
-                        execQuery(stmt, startRequestTime, true, query);
-                    } catch (SQLException e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-            }
-        } else if (queryObject instanceof WriteQuery writeQuery) {
-            String type = writeQuery.getType();
-            String queryTemplate = writeQuery.getQueryTemplate();
-            List<WriteQueryDetails> queries = writeQuery.getQueries();
-            switch (type) {
-                case "insert" -> {
-                    while (true) {
-                        for (WriteQueryDetails writeQueryDetails : queries) {
-                            String tableName = writeQueryDetails.getTableName();
+    private static String generateQuery(String queryTemplate, WriteQueryDetails queryDetails, String type) {
+        String tableName = queryDetails.getTableName();
+        return switch (type) {
+            case "insert" ->
+                    String.format(queryTemplate, tableName, generateColumns(queryDetails), generateValues(queryDetails));
+            case "update" ->
+                    String.format(queryTemplate, tableName, generateUpdatePairs(queryDetails), generateWhereClauses(queryDetails));
+            case "delete" -> String.format(queryTemplate, tableName, generateWhereClauses(queryDetails));
+            default -> throw new IllegalArgumentException("Invalid query type: " + type);
+        };
+    }
 
-                            // Target Columns
-                            StringJoiner columnNames = new StringJoiner(", ");
-                            StringJoiner values = new StringJoiner(", ");
-                            for (FieldDetails fieldDetails : writeQueryDetails.getTargetColumns()) {
-                                columnNames.add(fieldDetails.getName());
-                                values.add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-                            }
+    private static StringJoiner generateColumns(WriteQueryDetails queryDetails) {
+        StringJoiner columnNames = new StringJoiner(", ");
+        queryDetails.getTargetColumns().forEach(fieldDetails -> columnNames.add(fieldDetails.getName()));
+        return columnNames;
+    }
 
-                            String query = String.format(queryTemplate, tableName, columnNames, values);
-                            long startRequestTime = System.currentTimeMillis();
-                            try {
-                                PreparedStatement stmt = conn.prepareStatement(query);
-                                execQuery(stmt, startRequestTime, true, query);
-                            } catch (SQLException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                    }
-                }
-                case "update" -> {
-                    while (true) {
-                        for (WriteQueryDetails writeQueryDetails : queries) {
-                            String tableName = writeQueryDetails.getTableName();
+    private static StringJoiner generateValues(WriteQueryDetails queryDetails) {
+        StringJoiner values = new StringJoiner(", ");
+        queryDetails.getTargetColumns().forEach(fieldDetails -> values.add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue())));
+        return values;
+    }
 
-                            StringJoiner tgPair = new StringJoiner(", ");
+    private static StringJoiner generateUpdatePairs(WriteQueryDetails queryDetails) {
+        StringJoiner updatePairs = new StringJoiner(", ");
+        queryDetails.getTargetColumns().forEach(fieldDetails -> updatePairs.add(fieldDetails.getName() + " = " + ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue())));
+        return updatePairs;
+    }
 
-                            for (FieldDetails fieldDetails : writeQueryDetails.getTargetColumns()) {
-                                StringJoiner updatePair = new StringJoiner(" = ");
-
-                                updatePair.add(fieldDetails.getName()).add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-
-                                tgPair.add(updatePair.toString());
-                            }
-
-                            StringJoiner wcPair = new StringJoiner(" && ");
-
-                            for (FieldDetails fieldDetails : writeQueryDetails.getWhereClauses()) {
-                                StringJoiner updatePair = new StringJoiner(" = ");
-
-                                updatePair.add(fieldDetails.getName()).add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-
-                                wcPair.add(updatePair.toString());
-                            }
-
-                            String query = String.format(String.format(queryTemplate, tableName, tgPair, wcPair));
-                            long startRequestTime = System.currentTimeMillis();
-                            try {
-                                PreparedStatement stmt = conn.prepareStatement(query);
-                                execQuery(stmt, startRequestTime, true, query);
-                            } catch (SQLException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                    }
-                }
-                case "delete" -> {
-                    while (true) {
-                        for (WriteQueryDetails writeQueryDetails : queries) {
-                            String tableName = writeQueryDetails.getTableName();
-
-                            StringJoiner wcPair = new StringJoiner(" && ");
-
-                            for (FieldDetails fieldDetails : writeQueryDetails.getWhereClauses()) {
-                                StringJoiner updatePair = new StringJoiner(" = ");
-
-                                updatePair.add(fieldDetails.getName()).add(ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue()));
-
-                                wcPair.add(updatePair.toString());
-                            }
-
-                            String query = String.format(String.format(queryTemplate, tableName, wcPair));
-                            long startRequestTime = System.currentTimeMillis();
-                            try {
-                                PreparedStatement stmt = conn.prepareStatement(query);
-                                execQuery(stmt, startRequestTime, true, query);
-                            } catch (SQLException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    private static StringJoiner generateWhereClauses(WriteQueryDetails queryDetails) {
+        StringJoiner whereClauses = new StringJoiner(" && ");
+        queryDetails.getWhereClauses().forEach(fieldDetails -> whereClauses.add(fieldDetails.getName() + " = " + ValueGenerator.getRandomData(fieldDetails.isFixed(), fieldDetails.getDataType(), fieldDetails.getSampleValue())));
+        return whereClauses;
     }
 }

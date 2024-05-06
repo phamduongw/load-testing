@@ -7,7 +7,7 @@
   "connPoolingWeight": 0.3,
   "loopCount": {
     "type": "time",
-    "count": "3600"
+    "count": 3600
   },
   "readQuery": {
     "connWeight": 0.7,

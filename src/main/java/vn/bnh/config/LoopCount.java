@@ -7,13 +7,13 @@ public class LoopCount {
     private String type;
 
     @JsonProperty("count")
-    private String count;
+    private long count;
 
     public String getType() {
         return type;
     }
 
-    public String getCount() {
+    public long getCount() {
         return count;
     }
 }
