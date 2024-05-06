@@ -1,0 +1,85 @@
+{
+  "jdbcDriver": "com.mysql.cj.jdbc.Driver",
+  "jdbcUrl": "jdbc:mysql://10.10.12.238:3306",
+  "jdbcUsername": "dbadmin",
+  "jdbcPassword": "oracle_4U",
+  "connCount": 100,
+  "connPoolingWeight": 0.3,
+  "loopCount": {
+    "type": "time",
+    "count": "3600"
+  },
+  "readQuery": {
+    "connWeight": 0.7,
+    "queries": [
+      "SELECT * FROM CX6_AUDITING.TEST LIMIT 1",
+      "SELECT * FROM CX6_AUDITING.TEST LIMIT 2",
+      "SELECT * FROM CX6_AUDITING.TEST LIMIT 3",
+      "SELECT * FROM CX6_AUDITING.TEST LIMIT 4"
+    ]
+  },
+  "writeQueries": [
+    {
+      "type": "insert",
+      "connWeight": 0.15,
+      "queryTemplate": "INSERT INTO %s (%s) VALUES (%s)",
+      "queries": [
+        {
+          "tableName": "CX6_AUDITING.TEST",
+          "targetColumns": [
+            {
+              "name": "name",
+              "sampleValue": "abc",
+              "dataType": "string",
+              "isFixed": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "update",
+      "connWeight": 0.1,
+      "queryTemplate": "UPDATE %s SET %s WHERE %s",
+      "queries": [
+        {
+          "tableName": "CX6_AUDITING.TEST",
+          "targetColumns": [
+            {
+              "name": "NAME",
+              "sampleValue": "123ABC",
+              "dataType": "string",
+              "isFixed": false
+            }
+          ],
+          "whereClauses": [
+            {
+              "name": "ID",
+              "sampleValue": "1111",
+              "dataType": "number",
+              "isFixed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "delete",
+      "connWeight": 0.05,
+      "queryTemplate": "DELETE FROM %s WHERE %s",
+      "queries": [
+        {
+          "tableName": "CX6_AUDITING.TEST",
+          "whereClauses": [
+            {
+              "name": "ID",
+              "sampleValue": "1001",
+              "dataType": "number",
+              "isFixed": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
