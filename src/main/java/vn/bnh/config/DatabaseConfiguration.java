@@ -32,6 +32,9 @@ public class DatabaseConfiguration {
     @JsonProperty("writeQueries")
     private List<WriteQuery> writeQueries;
 
+    @JsonProperty("transactions")
+    private List<Transaction> transactions;
+
     public String getJdbcDriver() {
         return jdbcDriver;
     }
@@ -66,5 +69,9 @@ public class DatabaseConfiguration {
 
     public List<WriteQuery> getWriteQueries() {
         return writeQueries;
+    }
+
+    public List<Transaction> getTransactions() {
+        return transactions;
     }
 }

@@ -10,18 +10,15 @@
     "count": 3600
   },
   "readQuery": {
-    "connWeight": 0.7,
+    "connWeight": 0,
     "queries": [
-      "SELECT * FROM CX6_AUDITING.TEST LIMIT 1",
-      "SELECT * FROM CX6_AUDITING.TEST LIMIT 2",
-      "SELECT * FROM CX6_AUDITING.TEST LIMIT 3",
-      "SELECT * FROM CX6_AUDITING.TEST LIMIT 4"
+      "SELECT 1"
     ]
   },
   "writeQueries": [
     {
       "type": "insert",
-      "connWeight": 0.15,
+      "connWeight": 1,
       "queryTemplate": "INSERT INTO %s (%s) VALUES (%s)",
       "queries": [
         {
@@ -39,7 +36,7 @@
     },
     {
       "type": "update",
-      "connWeight": 0.1,
+      "connWeight": 0,
       "queryTemplate": "UPDATE %s SET %s WHERE %s",
       "queries": [
         {
@@ -65,7 +62,7 @@
     },
     {
       "type": "delete",
-      "connWeight": 0.05,
+      "connWeight": 0,
       "queryTemplate": "DELETE FROM %s WHERE %s",
       "queries": [
         {
@@ -79,6 +76,16 @@
             }
           ]
         }
+      ]
+    }
+  ],
+  "transactions": [
+    {
+      "connWeight": 0,
+      "queries": [
+        "INSERT INTO CX6_AUDITING.TEST (name, address) VALUES ('Test Transaction', 'ABC')",
+        "UPDATE CX6_AUDITING.TEST SET ADDRESS = 'DEF' WHERE NAME = 'Test Transaction'",
+        "SELECT 1"
       ]
     }
   ]
